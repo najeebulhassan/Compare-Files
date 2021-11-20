@@ -1,21 +1,18 @@
 <?php
-
 namespace App\Http\Controllers;
 
-use App\Helpers\Versatec;
-use App\User;
 use App\CardList;
-use App\TransactionList;
-
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Mail;
-use stdClass;
+use App\Helpers\Versatec;
 use App\Mail\Testing;
-use PDF;
-use App\Exports\AccountStatement;
-use Maatwebsite\Excel\Facades\Excel;
+use App\Mail\Verify;
 
+use App\TransactionList;
+use App\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Validator;
+use PDF;
+use stdClass;
 
 class VersatecApiController extends Controller
 {
@@ -28,12 +25,13 @@ class VersatecApiController extends Controller
 
     public function showAccountStatus(Request $request)
     {
-        $data      =  $request->all();
+        //
+        $data = $request->all();
 
-        $validator =  Validator::make($data, [
+        $validator = Validator::make($data, [
             'account' => 'required',
         ]);
-        $year = $request->input('year') != 0  ? $request->input('year') : 0;
+        $year = $request->input('year') != 0 ? $request->input('year') : 0;
         $month = $request->input('month') != 0 ? $request->input('month') : 0;
         $account = $request->input('account');
         if ($validator->fails()) {
@@ -61,16 +59,16 @@ class VersatecApiController extends Controller
         $res = response(app(Versatec::class)->getFloatingTransactions($account));
 
         $json = json_decode($res->original);
-        $my_data            =   new stdClass();
-        $my_data->InfoTran  =   $json->InfoTran;
-        $jmodel             =   $json->Model;
+        $my_data = new stdClass();
+        $my_data->InfoTran = $json->InfoTran;
+        $jmodel = $json->Model;
 
-        $sort   =   array();
+        $sort = array();
         foreach ($jmodel as $key => $row) {
             $sort[$key] = $row->FechaTrx;
         }
         array_multisort($sort, SORT_DESC, $jmodel);
-        $my_data->Model =   $jmodel;
+        $my_data->Model = $jmodel;
         return json_encode($my_data);
     }
 
@@ -83,7 +81,7 @@ class VersatecApiController extends Controller
             'account' => 'required',
         ]);
         $account = $request->input('account');
-        $year = $request->input('year') != 0  ? $request->input('year') : 0;
+        $year = $request->input('year') != 0 ? $request->input('year') : 0;
         $month = $request->input('month') != 0 ? $request->input('month') : 0;
         if ($validator->fails()) {
             return response(['errors' => $validator->errors()]);
@@ -111,7 +109,7 @@ class VersatecApiController extends Controller
             'card' => 'required',
         ]);
 
-        $year = $request->input('year') != 0  ? $request->input('year') : 0;
+        $year = $request->input('year') != 0 ? $request->input('year') : 0;
         $month = $request->input('month') != 0 ? $request->input('month') : 0;
         $account = $request->input('account');
         $card = $request->input('card');
@@ -120,28 +118,29 @@ class VersatecApiController extends Controller
             return response(['errors' => $validator->errors()]);
         }
         $res = response(app(Versatec::class)->getAccountMovements($account, $card, $year, $month));
-
+        $carddata = CardList::where('Tarjeta', $card)->first();
         $json = json_decode($res->original);
-        $tran = TransactionList::all()->toArray();
+        $tran = TransactionList::where('user_id', $carddata->user_id)->get()->toArray();
         if (count($tran) > 0) {
             foreach ($tran as $key => $d) {
                 $newds[] = (object) $d;
             }
             $merge = array_merge($newds, $json->Model);
+
         } else {
             $merge = $json->Model;
         }
+        // dd($json);
+        $my_data = new stdClass();
+        $my_data->InfoTran = $json->InfoTran;
+        $jmodel = $merge;
 
-        $my_data            =   new stdClass();
-        $my_data->InfoTran  =   $json->InfoTran;
-        $jmodel             =   $merge;
-
-        $sort   =   array();
+        $sort = array();
         foreach ($jmodel as $key => $row) {
             $sort[$key] = $row->FechaOrigen;
         }
         array_multisort($sort, SORT_DESC, $jmodel);
-        $my_data->Model =   $jmodel;
+        $my_data->Model = $jmodel;
         return json_encode($my_data);
     }
 
@@ -172,6 +171,7 @@ class VersatecApiController extends Controller
     {
         $res = response(app(Versatec::class)->showCardsList());
         print_r(json_decode($res->original));
+
     }
 
     public function inputCardManagement(Request $request)
@@ -198,61 +198,119 @@ class VersatecApiController extends Controller
 
     public function markCardAssociated(Request $request)
     {
-        $data = $request->all();
-        $validator = Validator::make($data, [
-            'card' => 'required',
-            'account' => 'required',
-            'client_code' => 'required',
-            'username' => 'required',
-            'idPlastico' => 'required',
-            'user_id' => 'required',
-            'cif' => 'required',
-            'expiry_date' => 'required',
-            'card_status' => 'required',
-            'nombre_tarjeta' => 'required',
-            'tarjeta_digitos' => 'required',
-
+        $data       = $request->all();
+        $validator  = Validator::make($data, [
+            'card'              =>  'required',
+            'account'           =>  'required',
+            'client_code'       =>  'required',
+            'username'          =>  'required',
+            'idPlastico'        =>  'required',
+            'user_id'           =>  'required',
+            'cif'               =>  'required',
+            'expiry_date'       =>  'required',
+            'card_status'       =>  'required',
+            'nombre_tarjeta'    =>  'required',
+            'tarjeta_digitos'   =>  'required',
         ]);
-        $card = $request->input('card');
-        $account = $request->input('account');
-        $client_code = $request->input('client_code');
-        $username = $request->input('username');
 
-        $idPlastico = $request->input('idPlastico');
-        $user_id = $request->input('user_id');
-        $cif = $request->input('cif');
-        $expiry_date = $request->input('expiry_date');
-        $card_status = $request->input('card_status');
-        $nombre_tarjeta = $request->input('nombre_tarjeta');
-        $tarjeta_digitos = $request->input('tarjeta_digitos');
+        $card               =   $request->input('card');
+        $account            =   $request->input('account');
+        $client_code        =   $request->input('client_code');
+        $username           =   $request->input('username');
+        $idPlastico         =   $request->input('idPlastico');
+        $user_id            =   $request->input('user_id');
+        $cif                =   $request->input('cif');
+        $expiry_date        =   $request->input('expiry_date');
+        $card_status        =   $request->input('card_status');
+        $nombre_tarjeta     =   $request->input('nombre_tarjeta');
+        $tarjeta_digitos    =   $request->input('tarjeta_digitos');
+        $associate_message  =   null;
 
-        if ($validator->fails()) {
+        if ($validator->fails())
+        {
             return response(['errors' => $validator->errors()]);
         }
-        $associate_response = response(app(Versatec::class)->associateAccountToCard($card, $account, $client_code, $username));
+        else
+        {
+            $associate_response =   response(app(Versatec::class)->associateAccountToCard($card, $account, $client_code, $username));
+            $associate          =   $associate_response;
 
-        if ($associate_response->original == 'Ok') {
-            $card = CardList::updateOrCreate(
-                ['idPlastico' => $idPlastico],
-                [
-                    'Cuenta' => $account, 'user_id' => $user_id, 'Tarjeta' => $card, 'IdPlastico' => $idPlastico, 'codigoCliente' => $client_code, 'Cif' => $cif, 'card_status' => $card_status,
-                    'expiry_date' => $expiry_date, 'is_associated' => 1, 'nombre_tarjeta' => $nombre_tarjeta, 'tarjeta_digitos' => $tarjeta_digitos
-                ]
-            );
-            if ($card == true) {
-                $subject = "Associated Plastico";
-                $message = "Your Plastico Has Been Associated Successfully";
-                $email = User::where('id', $user_id)->where('cod_cliente', $client_code)->select('email')->first();
-                $data = new stdClass();
-                $data->message = $message;
-                $data->subject = $subject;
-                Mail::to($email->email)->send(new Testing($data));
-                $associate_message = "Your Plastico Has Been Associated Successfully";
-            } else {
-                $associate_message = "Some Error Occurred";
+            if ($associate == 'Ok')
+            {
+                $card = CardList::updateOrCreate(
+                    [   'idPlastico'        =>  $idPlastico   ],
+                    [   'Cuenta'            =>  $account,
+                        'user_id'           =>  $user_id,
+                        'Tarjeta'           =>  $card,
+                        'IdPlastico'        =>  $idPlastico, 
+                        'codigoCliente'     =>  $client_code, 
+                        'Cif'               =>  $cif, 
+                        'card_status'       =>  $card_status,
+                        'expiry_date'       =>  $expiry_date, 
+                        'is_associated'     =>  1, 
+                        'nombre_tarjeta'    =>  $nombre_tarjeta, 
+                        'tarjeta_digitos'   =>  $tarjeta_digitos]
+                );
+
+                if ($card) 
+                {
+                    
+                    $address    =   null;
+                    $company    =   null;
+                    $view       =   null;
+                    $subject    =   null;
+                    $message    =   null;
+                    $user       =   User::where('id', $user_id)->where('cod_cliente', $client_code)->first();
+
+                    switch ($user->company)
+                        {
+                            case 'IBBA':
+                            case 'ibba':
+                                $address    =   'info@ibba.co';
+                                $company    =   'IBBA';
+                                $view       =   'ibba';
+                                $subject    =   "Associated Plastico";
+                                $message    =   "Plastico Has Been Associated Successfully";
+                            break;
+
+                            case 'ILN_CLONE1':
+                            case 'iln_clone1':
+                                $address    =   'info@iln.law';
+                                $company    =   'ILN';
+                                $view       =   'iln';
+                                $subject    =   "Associate Card";
+                                $message    =   "Card Has Been Associated Successfully";
+                            break;
+                        }
+                    
+                        if(isset($user->company))
+                        {
+                        $data               =   new stdClass();
+                        $data->message      =   $message;
+                        $data->subject      =   $subject;
+                        $data->address      =   $address;
+                        $data->company      =   $company;
+                        $data->view         =   $view;
+                        $mailsent           =   Mail::to($user->email)->send(new Verify($data));
+                        
+                            if (Mail::failures())
+                            {
+                                $associate_message   =   'Could Not Send Mail But Card Has Been Associated';
+                            }
+                            else{
+                                $associate_message   =   'Card Has Been Associated And Mail Has Been Sent';
+                            }
+                        }  
+                } 
+                else 
+                {
+                    $associate_message = "Some Error Occurred";
+                }
+            } 
+            else 
+            {
+                $associate_message = "Something Went Wrong";
             }
-        } else {
-            $associate_message = "Something Went Wrong";
         }
         return $associate_message;
     }
@@ -273,7 +331,6 @@ class VersatecApiController extends Controller
         $client_code = $request->input('client_code');
         $username = $request->input('username');
         $idPlastico = $request->input('idPlastico');
-
 
         if ($validator->fails()) {
             return response(['errors' => $validator->errors()]);
@@ -307,7 +364,6 @@ class VersatecApiController extends Controller
             'idPlastico' => 'required',
         ]);
         $idPlastico = $request->input('idPlastico');
-
 
         if ($validator->fails()) {
             return response(['errors' => $validator->errors()]);
@@ -371,6 +427,7 @@ class VersatecApiController extends Controller
             if ($value->CodigoCliente != $code) {
                 $res->original[$key]->name = "hello";
                 unset($res->original[$key]);
+
             }
         };
 
@@ -433,7 +490,7 @@ class VersatecApiController extends Controller
                 CardList::where('Tarjeta', $card)->where('Cuenta', $account)->update(
                     ['card_status' => 'CUENTA BLOQUEADA', 'is_activated' => 3]
                 );
-                $cardlist = "Your Card Has Been Blocked Successfully";
+                $cardlist = "Su tarjeta se ha detenido temporalmente.";
             } else {
 
                 $cardlist = $res->original . 'block';
@@ -443,7 +500,7 @@ class VersatecApiController extends Controller
                 CardList::where('Tarjeta', $card)->where('Cuenta', $account)->update(
                     ['card_status' => 'PLASTICO OK', 'is_activated' => 1]
                 );
-                $cardlist = "Your Card Has Been Activated Successfully";
+                $cardlist = "Su tarjeta ha sido reanudada.";
             } else {
                 $cardlist = $res->original . 'unblock';
             }
@@ -453,6 +510,7 @@ class VersatecApiController extends Controller
 
         return $cardlist;
     }
+
 
     public function activateDummyCard(Request $request)
     {
@@ -491,58 +549,110 @@ class VersatecApiController extends Controller
     {
         $input = $request->all();
         $validator = Validator::make($input, [
-            'cod_cliente' => 'required',
-            'user_id' => 'required',
+            'cod_cliente'   => 'required',
+            'user_id'       => 'required',
         ]);
-        $user_id = $request->input('user_id');
-        $client_code = $request->input('cod_cliente');
+        $user_id        = $request->input('user_id');
+        $client_code    = $request->input('cod_cliente');
 
-        if ($validator->fails()) {
+        if ($validator->fails()) 
+        {
             return response(['errors' => $validator->errors()]);
         }
+        else
+        {
+            $input['num_identificacion']    = $input['cod_cliente'];
+            $input['primer_nombre']         = $input['username'];
+            $input['primer_apellido']       = $input['username'];
+            $input['username']              = $input['username'];
+            $input['telefono']              = $input['celular'];
+            $input['ciclo_facturacion']     = 1;
+            $input['tipo_identificacion']   = 1;
+            $input['telefono_empresa']      = $input['celular'];
+            $input['role_id']               = 2;
+            $input['tipo_tarjeta']          = '040';
+            $input['sucursal']              = '01';
+            $input['cupo']                  = 0;
+            $input['promotor']              = '4000000000';
+            $input['profesion']             = '999';
+            $input['empresa']               = 'TDSNA';
+            $input['lugar_entrega']         = '01';
+            $input['nacionalidad']          = 'PA';
 
-        $input['num_identificacion'] = $input['cod_cliente'];
-        $input['primer_nombre'] = $input['username'];
-        $input['primer_apellido'] = $input['username'];
-        $input['telefono'] = $input['celular'];
-        $input['ciclo_facturacion'] = 1;
-        $input['tipo_identificacion'] = 1;
-        $input['telefono_empresa'] = $input['celular'];
-        $input['role_id'] = 2;
-        $input['tipo_tarjeta'] = '009';
-        $input['sucursal'] = '01';
-        $input['cupo'] = 0;
-        $input['promotor'] = '4000000000';
-        $input['profesion'] = '999';
-        $input['empresa'] = 'TDSNA';
-        $input['lugar_entrega'] = '01';
-        $input['nacionalidad'] = 'PA';
+            $input_obj  = (object) $input;
+            $user       = User::where('id', $user_id)->where('cod_cliente', $client_code)->first();
 
-        $input_obj = (object) $input;
-        $user = User::where('id', $user_id)->where('cod_cliente', $client_code)->first();
-        if ($user->card_request == 0 &&  $user->card_request != 1) {
-            $res = response(app(Versatec::class)->sendAccountInfo($input_obj));
-            $json_res = json_decode($res->original);
-            $mes = $json_res->InfoTran->ReturnMessage;
-           
-            if ($mes == "Ok") {
-                $subject = "Plastico Neuvo";
-                $message = "Plastico Neuvo Has Been Added";
-                $data = new stdClass();
-                $data->message = $message;
-                $data->subject = $subject;
-                Mail::to($user->email)->send(new Testing($data));
-                $resp = $user->update(['card_request' => 1]);
-                if ($resp == true) {
-                    $cardlist = $message;
+            if ($user->card_request == 0) 
+            {
+                $res        = response(app(Versatec::class)->sendAccountInfo($input_obj));
+                $json_res   = json_decode($res->original);
+                $mes        = $json_res->InfoTran->ReturnMessage;
+
+                if ($mes == "Ok")
+                {
+                    $address    =   null;
+                    $company    =   null;
+                    $view       =   null;
+                    $subject    =   null;
+                    $message    =   null;
+
+                    switch ($user->company)
+                    {
+                        case 'IBBA':
+                        case 'ibba':
+                            $address    =   'info@ibba.co';
+                            $company    =   'IBBA';
+                            $view       =   'ibba';
+                            $subject    =   "Plastico Neuvo";
+                            $message    =   "Plastico Neuvo Has Been Added";
+                        break;
+
+                        case 'ILN_CLONE1':
+                        case 'iln_clone1':
+                            $address    =   'info@iln.law';
+                            $company    =   'ILN';
+                            $view       =   'iln';
+                            $subject    =   "New Card";
+                            $message    =   "New Card Has Been Created";
+                        break;
+                    }
+
+                    if(isset($user->company))
+                    {
+                    $data               =   new stdClass();
+                    $data->message      =   $message;
+                    $data->subject      =   $subject;
+                    $data->address      =   $address;
+                    $data->company      =   $company;
+                    $data->view         =   $view;
+                    $mailsent           =   Mail::to($user->email)->send(new Verify($data));
+                    
+                        if (Mail::failures())
+                        {
+                            $cardlist   =   'Could Not Send Mail But Card Has Been Added';
+                        }
+                        else
+                        {
+                        $resp  = $user->update(['card_request' => 1]);
+
+                            if ($resp == true)
+                            {
+                                $cardlist   = $message;
+                            }
+                        }  
+                    }   
                 }
-            } else {
-                $cardlist = "Plastico Neuvo Could Not Be Added";
+                else
+                {
+                    $cardlist   = "Could Not Add New Card";
+                }
+            } 
+            else 
+            {
+                $cardlist = "You Card Has Already Been Requested";
             }
-        } else {
-            $cardlist = "You card has already been requested";
+            return $cardlist;
         }
-        return $cardlist;
     }
 
 
@@ -847,7 +957,6 @@ class VersatecApiController extends Controller
 
     public function confirmPayment(Request $request)
     {
-
         if (isset($request->order_id)) {
             $user   =   User::where('email', $request->customer_email)->first();
             $card   =   CardList::where('user_id', $user->id)->first();
@@ -911,144 +1020,4 @@ class VersatecApiController extends Controller
         }
     }
 
-    public function associateAllCards()
-    {
-        $res    = response(app(Versatec::class)->showCardsList());
-        $resp   = json_decode($res->original);
-
-        foreach ($resp as $value)
-        {
-            $card           =   $value->Tarjeta;
-            $account        =   $value->Cuenta;
-            $client_code    =   $value->CodigoCliente;
-            $idPlastico     =   $value->IdPlastico;
-            $cif            =   $value->Cif;
-            $user           =   User::where('cod_cliente', $client_code)->first();
-            $message        =   null;
-
-            if($user)
-            {
-                $user_id            =   $user->id;
-                $username           =   $user->username;
-                $cardjson           =   response(app(Versatec::class)->getCardInfo($card))->original;
-                $cardinfo           =   json_decode($cardjson);
-                $nombre_tarjeta     =   $cardinfo->NombreTh;
-                $expiry_date        =   $cardinfo->Vencimiento;
-                $tarjeta_digitos    =   $cardinfo->Tarjeta;
-                $card_status        =   $cardinfo->Estado;
-                $associate_response =   response(app(Versatec::class)->associateAccountToCard($card, $account, $client_code, $username));
-
-                if($associate_response)
-                {
-                    $associate          =   $associate_response->original; 
-
-                    if ($associate == 'Ok')
-                    {
-
-                        $card       =   CardList::updateOrCreate(
-                        [
-                            'idPlastico'        => $idPlastico
-                        ],
-                        [
-                            'Cuenta'            =>  $account, 
-                            'user_id'           =>  $user_id, 
-                            'Tarjeta'           =>  $card, 
-                            'IdPlastico'        =>  $idPlastico, 
-                            'codigoCliente'     =>  $client_code, 
-                            'Cif'               =>  $cif, 
-                            'card_status'       =>  $card_status,
-                            'expiry_date'       =>  $expiry_date,
-                            'is_associated'     =>  1,
-                            'nombre_tarjeta'    =>  $nombre_tarjeta,
-                            'tarjeta_digitos'   =>  $tarjeta_digitos
-                        ]);
-
-                        if($card)
-                        {
-                            $message    =   'Card is Associated'.$client_code .'<br>';  
-                        }
-                        else
-                        {
-                            $message    =   'Card is Not Associated'.$client_code .'<br>';
-                        }
-                    }
-                    else
-                    {
-                        $message    =   'User Exists but Card is Not OK'.$client_code .'<br>'; 
-                    }
-                }
-                else
-                {
-                    $message    =   'There is no response from endpoint'.$client_code .'<br>'; 
-                }
-            }
-            else
-            {
-                $message    =   'Neither User nor respective Card is existed'.$client_code .'<br>';
-            }
-                echo $message.$client_code .'<br>';
-        }
-    }
-
-    public function activateAllCards()
-    {
-        $resp   = CardList::all();
-
-        foreach ($resp as $value)
-        {  
-            $card           =   $value->Tarjeta; 
-            $account        =   $value->Cuenta;
-            $client_code    =   $value->codigoCliente;
-            $idPlastico     =   $value->IdPlastico;
-            $user           =   User::where('cod_cliente', $client_code)->first();
-            $message        =   null;
-
-            if($user)
-            {   
-                $user_id            =   $user->id;
-                $username           =   $user->username;
-                $activate_response  =   response(app(Versatec::class)->makeCardActive($account, $card, $client_code, $username));
-                
-                if($activate_response)
-                {
-                $activate           =   $activate_response->original;
-
-                    if ($activate == 'Ok')
-                    {
-                        $card   =   CardList::where([
-
-                            'user_id'       => $user_id,
-                            'CodigoCliente' => $client_code,
-                            'IdPlastico'    => $idPlastico,
-                            ])->update([
-
-                                'is_activated'      =>  1,
-                                'card_status'       =>  'PLASTICO OK'
-                            ]);
-                        if($card)
-                        {
-                            $message    =   'Card is Activated'.$client_code .'<br>';  
-                        }
-                        else
-                        {
-                            $message    =   'Card is Not Activated'.$client_code .'<br>';
-                        }
-                    }
-                    else
-                    {
-                        $message    =   'User Exists but Card is Not OK'.$idPlastico .'<br>'; 
-                    }
-                }
-                else
-                {
-                    $message    =   'There is no response from endpoint'.$idPlastico .'<br>'; 
-                }
-            }
-            else
-            {
-                $message    =   'Neither User nor respective Card is existed'.$idPlastico .'<br>';
-            }
-                echo $message.$client_code .'<br>';
-        }
-    }
 }
